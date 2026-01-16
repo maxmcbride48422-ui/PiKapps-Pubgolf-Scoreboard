@@ -5,18 +5,21 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>PiKapps Open - Scoreboard</title>
 
-  <!-- If Pages/browser caches aggressively, this helps you verify you're seeing the latest file.
-       Change VERSION when you want a visible "new build" indicator. -->
-  <meta name="app-version" content="2.0.0" />
+  <meta name="app-version" content="2.1.0" />
 
   <style>
     :root{
       --masters-green:#0b3d2e;
       --masters-green-2:#0f4a37;
-      --paper:#f7f3e8;
+
+      /* Masters-ish parchment */
+      --paper:#f3ecd2;      /* main card background */
+      --paper-2:#fbf6e4;    /* header strip */
       --ink:#132018;
       --muted:#5b6a60;
-      --line:#d9d2c3;
+      --line:#d8cfae;       /* warm dividers */
+      --gold:#b38b2e;       /* subtle gold accents */
+
       --shadow: 0 10px 30px rgba(0,0,0,.12);
     }
 
@@ -68,8 +71,9 @@
       gap:8px;
       padding:6px 10px;
       border-radius: 999px;
-      background: rgba(255,255,255,.10);
-      border: 1px solid rgba(255,255,255,.14);
+      background: rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.18);
+      backdrop-filter: blur(6px);
       white-space: nowrap;
     }
     .dot{
@@ -98,13 +102,15 @@
     .card{
       background: var(--paper);
       border-radius: 18px;
-      box-shadow: var(--shadow);
       overflow:hidden;
       border: 1px solid rgba(255,255,255,.35);
+      box-shadow:
+        0 10px 30px rgba(0,0,0,.12),
+        inset 0 1px 0 rgba(255,255,255,.55);
     }
 
     .card-head{
-      background: linear-gradient(180deg, #fdfaf1, #f3eedf);
+      background: linear-gradient(180deg, var(--paper-2), #f1e7c6);
       border-bottom: 1px solid var(--line);
       padding: 14px 18px;
       display:flex;
@@ -112,7 +118,19 @@
       justify-content:space-between;
       gap: 12px;
       flex-wrap: wrap;
+      position: relative;
     }
+    .card-head::after{
+      content:"";
+      position:absolute;
+      left:18px;
+      right:18px;
+      bottom:-1px;
+      height:2px;
+      background: linear-gradient(90deg, transparent, rgba(179,139,46,.65), transparent);
+      pointer-events:none;
+    }
+
     .card-head h2{
       margin:0;
       font-family: ui-serif, Georgia, "Times New Roman", Times, serif;
@@ -121,6 +139,7 @@
       color: var(--masters-green);
       font-size: 18px;
     }
+
     .smallmeta{
       color: var(--muted);
       font-size: 12px;
@@ -131,12 +150,12 @@
       align-items:center;
     }
     .smallpill{
-      padding: 5px 9px;
+      padding: 5px 10px;
       border-radius: 999px;
-      background: rgba(11,61,46,.07);
-      border: 1px solid rgba(11,61,46,.12);
+      background: rgba(255,255,255,.35);
+      border: 1px solid rgba(19,32,24,.16);
       color: var(--masters-green);
-      font-weight: 700;
+      font-weight: 800;
     }
 
     table{ width:100%; border-collapse: collapse; }
@@ -148,7 +167,7 @@
       color: var(--muted);
       padding: 12px 16px;
       border-bottom: 1px solid var(--line);
-      background: #fbf8ef;
+      background: rgba(255,255,255,.35);
     }
 
     tbody td{
@@ -158,9 +177,8 @@
     }
     tbody tr:last-child td{ border-bottom: none; }
 
-    /* subtle row hover */
     tbody tr:hover td{
-      background: rgba(11,61,46,.03);
+      background: rgba(255,255,255,.18);
     }
 
     .pos{
@@ -168,11 +186,6 @@
       color: var(--muted);
       font-variant-numeric: tabular-nums;
       font-weight: 800;
-    }
-
-    .name{
-      font-weight: 800;
-      letter-spacing: .1px;
     }
 
     .num{
@@ -187,6 +200,17 @@
     .score.under{ color: var(--masters-green-2); }
     .score.over{ color: #7a1f1f; }
     .score.even{ color: var(--ink); }
+
+    /* Center PLAYER column */
+    th.player-col,
+    td.player-col{
+      text-align: center;
+    }
+    td.player-col .name{
+      font-weight: 800;
+      letter-spacing: .1px;
+      display: inline-block;
+    }
 
     .error{
       margin-top: 12px;
@@ -217,7 +241,7 @@
         <span class="pill"><span id="statusIcon"><span class="spinner"></span></span> <span id="statusText">loading…</span></span>
         <span class="pill">Last update: <span id="lastUpdate">—</span></span>
         <span class="pill">Refresh: 15s</span>
-        <span class="pill">v<span id="version">2.0.0</span></span>
+        <span class="pill">v<span id="version">2.1.0</span></span>
       </div>
     </div>
   </header>
@@ -236,7 +260,7 @@
         <thead>
           <tr>
             <th class="pos">Pos</th>
-            <th>Player</th>
+            <th class="player-col">Player</th>
             <th class="num score">Score</th>
             <th class="num through">Through</th>
           </tr>
@@ -248,12 +272,11 @@
     </section>
 
     <div id="error" class="error"></div>
-
-    <div class="footer">Tip: if UI doesn’t change after editing, hard refresh (Ctrl+F5 / Cmd+Shift+R) or add ?v=2 to the URL.</div>
+    <div class="footer">If UI doesn’t change after editing, hard refresh (Ctrl+F5 / Cmd+Shift+R) or add ?v=2 to the URL.</div>
   </main>
 
   <script>
-    const VERSION = "2.0.0";
+    const VERSION = "2.1.0";
     document.getElementById("version").textContent = VERSION;
 
     // Published CSV link
@@ -267,7 +290,6 @@
     const errorEl = document.getElementById("error");
 
     function setStatus(state) {
-      // state: "loading" | "live" | "offline"
       if (state === "loading") {
         statusIcon.innerHTML = `<span class="spinner"></span>`;
         statusText.textContent = "loading…";
@@ -361,17 +383,16 @@
     }
 
     function computePositions(playersSorted) {
-      // Ties defined as same through AND same score
-      // Output: array of { ...player, posLabel }
+      // Tie group if same through AND same score.
+      // If 5 tied for first -> all T1, next rank is 6
       const out = [];
       let i = 0;
-      let rank = 1; // 1-based position number
+      let rank = 1;
 
       while (i < playersSorted.length) {
         const keyScore = playersSorted[i].score;
         const keyThrough = playersSorted[i].through;
 
-        // find tie group size
         let j = i;
         while (
           j < playersSorted.length &&
@@ -386,7 +407,6 @@
           out.push({ ...playersSorted[k], posLabel: label });
         }
 
-        // next rank skips by group size
         rank += groupSize;
         i = j;
       }
@@ -404,7 +424,7 @@
         const tr = document.createElement("tr");
         tr.innerHTML = `
           <td class="pos">${escapeHtml(p.posLabel)}</td>
-          <td class="name">${escapeHtml(p.name)}</td>
+          <td class="player-col"><span class="name">${escapeHtml(p.name)}</span></td>
           <td class="num score ${scoreClass(p.score)}">${escapeHtml(formatScore(p.score))}</td>
           <td class="num through"><span class="smallpill">${p.through}</span></td>
         `;

@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>PiKapps Open - Scoreboard</title>
 
+  <!-- If Pages/browser caches aggressively, this helps you verify you're seeing the latest file.
+       Change VERSION when you want a visible "new build" indicator. -->
+  <meta name="app-version" content="2.0.0" />
+
   <style>
     :root{
       --masters-green:#0b3d2e;
@@ -13,7 +17,6 @@
       --ink:#132018;
       --muted:#5b6a60;
       --line:#d9d2c3;
-      --gold:#b38b2e;
       --shadow: 0 10px 30px rgba(0,0,0,.12);
     }
 
@@ -57,6 +60,7 @@
       gap:10px;
       align-items:center;
       flex-wrap: wrap;
+      font-variant-numeric: tabular-nums;
     }
     .pill{
       display:inline-flex;
@@ -66,7 +70,6 @@
       border-radius: 999px;
       background: rgba(255,255,255,.10);
       border: 1px solid rgba(255,255,255,.14);
-      font-variant-numeric: tabular-nums;
       white-space: nowrap;
     }
     .dot{
@@ -100,7 +103,6 @@
       border: 1px solid rgba(255,255,255,.35);
     }
 
-    /* “Masters” style header strip */
     .card-head{
       background: linear-gradient(180deg, #fdfaf1, #f3eedf);
       border-bottom: 1px solid var(--line);
@@ -134,13 +136,10 @@
       background: rgba(11,61,46,.07);
       border: 1px solid rgba(11,61,46,.12);
       color: var(--masters-green);
-      font-weight: 600;
+      font-weight: 700;
     }
 
-    table{
-      width:100%;
-      border-collapse: collapse;
-    }
+    table{ width:100%; border-collapse: collapse; }
 
     thead th{
       text-transform: uppercase;
@@ -159,37 +158,36 @@
     }
     tbody tr:last-child td{ border-bottom: none; }
 
-    .rank{
-      width: 70px;
+    /* subtle row hover */
+    tbody tr:hover td{
+      background: rgba(11,61,46,.03);
+    }
+
+    .pos{
+      width: 80px;
       color: var(--muted);
       font-variant-numeric: tabular-nums;
+      font-weight: 800;
     }
 
     .name{
-      font-weight: 700;
+      font-weight: 800;
       letter-spacing: .1px;
     }
 
     .num{
       text-align:right;
       font-variant-numeric: tabular-nums;
-      font-weight: 700;
+      font-weight: 900;
     }
 
-    /* Score emphasis like a leaderboard */
-    .score{
-      width: 110px;
-    }
-    .through{
-      width: 120px;
-    }
+    .score{ width: 120px; }
+    .through{ width: 120px; }
 
-    /* Under-par in green, over-par in a muted red, even in neutral */
     .score.under{ color: var(--masters-green-2); }
     .score.over{ color: #7a1f1f; }
     .score.even{ color: var(--ink); }
 
-    /* Error box */
     .error{
       margin-top: 12px;
       color: #7a1f1f;
@@ -199,6 +197,13 @@
       border-radius: 12px;
       white-space: pre-wrap;
       display:none;
+    }
+
+    .footer{
+      margin-top: 10px;
+      color: rgba(255,255,255,.55);
+      font-size: 12px;
+      text-align: center;
     }
   </style>
 </head>
@@ -212,6 +217,7 @@
         <span class="pill"><span id="statusIcon"><span class="spinner"></span></span> <span id="statusText">loading…</span></span>
         <span class="pill">Last update: <span id="lastUpdate">—</span></span>
         <span class="pill">Refresh: 15s</span>
+        <span class="pill">v<span id="version">2.0.0</span></span>
       </div>
     </div>
   </header>
@@ -222,13 +228,14 @@
         <h2>Leaderboard</h2>
         <div class="smallmeta">
           <span class="smallpill">Sorted: Through ↓ then Score ↑</span>
+          <span class="smallpill">Ties: same Through + Score</span>
         </div>
       </div>
 
       <table aria-label="PiKapps Open leaderboard">
         <thead>
           <tr>
-            <th class="rank">Pos</th>
+            <th class="pos">Pos</th>
             <th>Player</th>
             <th class="num score">Score</th>
             <th class="num through">Through</th>
@@ -241,10 +248,15 @@
     </section>
 
     <div id="error" class="error"></div>
+
+    <div class="footer">Tip: if UI doesn’t change after editing, hard refresh (Ctrl+F5 / Cmd+Shift+R) or add ?v=2 to the URL.</div>
   </main>
 
   <script>
-    // Your published CSV link (works fine)
+    const VERSION = "2.0.0";
+    document.getElementById("version").textContent = VERSION;
+
+    // Published CSV link
     const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRE9EZ7Sjxo2rc7MskMriOvjtTYyeE_l-hMqvo2I9LFjPvjCa8CEjCFE3kXV7Xzjc4triXQbHRfoErp/pub?gid=4700759&single=true&output=csv";
     const REFRESH_MS = 15000;
 
@@ -277,7 +289,7 @@
       errorEl.textContent = "";
     }
 
-    // Minimal CSV parser that handles quoted commas.
+    // CSV parser (handles quoted commas)
     function parseCSV(text) {
       const rows = [];
       let row = [], cell = "";
@@ -342,19 +354,58 @@
       return "even";
     }
 
-    function render(players) {
+    function formatScore(score) {
+      if (score === 0) return "E";
+      if (score > 0) return `+${score}`;
+      return String(score);
+    }
+
+    function computePositions(playersSorted) {
+      // Ties defined as same through AND same score
+      // Output: array of { ...player, posLabel }
+      const out = [];
+      let i = 0;
+      let rank = 1; // 1-based position number
+
+      while (i < playersSorted.length) {
+        const keyScore = playersSorted[i].score;
+        const keyThrough = playersSorted[i].through;
+
+        // find tie group size
+        let j = i;
+        while (
+          j < playersSorted.length &&
+          playersSorted[j].score === keyScore &&
+          playersSorted[j].through === keyThrough
+        ) j++;
+
+        const groupSize = j - i;
+        const label = groupSize > 1 ? `T${rank}` : `${rank}`;
+
+        for (let k = i; k < j; k++) {
+          out.push({ ...playersSorted[k], posLabel: label });
+        }
+
+        // next rank skips by group size
+        rank += groupSize;
+        i = j;
+      }
+      return out;
+    }
+
+    function render(playersWithPos) {
       tbody.innerHTML = "";
-      if (!players.length) {
+      if (!playersWithPos.length) {
         tbody.innerHTML = `<tr><td colspan="4" style="color:var(--muted); padding:16px;">No players found.</td></tr>`;
         return;
       }
 
-      players.forEach((p, idx) => {
+      playersWithPos.forEach((p) => {
         const tr = document.createElement("tr");
         tr.innerHTML = `
-          <td class="rank">#${idx + 1}</td>
+          <td class="pos">${escapeHtml(p.posLabel)}</td>
           <td class="name">${escapeHtml(p.name)}</td>
-          <td class="num score ${scoreClass(p.score)}">${p.score}</td>
+          <td class="num score ${scoreClass(p.score)}">${escapeHtml(formatScore(p.score))}</td>
           <td class="num through"><span class="smallpill">${p.through}</span></td>
         `;
         tbody.appendChild(tr);
@@ -367,14 +418,17 @@
 
       // cache-bust
       const url = `${CSV_URL}&_ts=${Date.now()}`;
+
       const res = await fetch(url, { cache: "no-store" });
       if (!res.ok) throw new Error(`Fetch failed: ${res.status} ${res.statusText}`);
 
       const text = await res.text();
       const rows = parseCSV(text);
-      const players = sortPlayers(extractPlayers(rows));
 
-      render(players);
+      const players = sortPlayers(extractPlayers(rows));
+      const playersWithPos = computePositions(players);
+
+      render(playersWithPos);
 
       lastUpdateEl.textContent = new Date().toLocaleTimeString();
       setStatus("live");

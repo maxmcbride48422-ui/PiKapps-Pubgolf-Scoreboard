@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Leaderboard</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    body { margin: 0; padding: 24px; background: #0b0f19; color: #e9eefc; }
+    .wrap { max-width: 900px; margin: 0 auto; }
+    h1 { margin: 0 0 8px; font-size: 28px; }
+    .sub { opacity: 0.8; margin-bottom: 18px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .pill { padding: 6px 10px; border-radius: 999px; background: rgba(255,255,255,0.08); font-size: 13px; }
+    .card { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.10); border-radius: 16px; overflow: hidden; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 14px 14px; border-bottom: 1px solid rgba(255,255,255,0.10); }
+    th { text-align: left; font-size: 13px; letter-spacing: 0.02em; text-transform: uppercase; opacity: 0.85; }
+    tr:last-child td { border-bottom: none; }
+    .rank { width: 72px; opacity: 0.8; }
+    .name { font-weight: 650; }
+    .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .muted { opacity: 0.75; }
+    .error { margin-top: 12px; color: #ffb4b4; }
+    .ok { color: #b7ffce; }
+    .spinner { display: inline-block; width: 10px; height: 10px; border: 2px solid rgba(255,255,255,0.25); border-top-color: rgba(255,255,255,0.9); border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Leaderboard</h1>
+    <div class="sub">
+      <div class="pill">Auto-refresh: <strong>15s</strong></div>
+      <div class="pill">Last update: <span id="lastUpdate" class="muted">—</span></div>
+      <div class="pill">Status: <span id="status" class="muted"><span class="spinner"></span> loading…</span></div>
+    </div>
+
+    <div class="card">
+      <table>
+        <thead>
+          <tr>
+            <th class="rank">Rank</th>
+            <th>Name</th>
+            <th class="num">Score</th>
+            <th class="num">Through</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <tr><td colspan="4" class="muted">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div id="error" class="error" style="display:none;"></div>
+  </div>
+
+  <script>
+    // Your published sheet "pub" ID:
+    const PUB_ID = "2PACX-1vRE9EZ7Sjxo2rc7MskMriOvjtTYyeE_l-hMqvo2I9LFjPvjCa8CEjCFE3kXV7Xzjc4triXQbHRfoErp";
+    const GID = "4700759";
+
+    // CSV endpoint for published sheets:
+    // If this ever fails, see the alternative endpoint in the notes below.
+    const CSV_URL = `https://docs.google.com/spreadsheets/d/e/${PUB_ID}/pub?gid=${GID}&single=true&output=csv`;
+
+    const REFRESH_MS = 15000;
+
+    const tbody = document.getElementById("tbody");
+    const lastUpdateEl = document.getElementById("lastUpdate");
+    const statusEl = document.getElementById("status");
+    const errorEl = document.getElementById("error");
+
+    function setStatus(html) { statusEl.innerHTML = html; }
+    function showError(msg) {
+      errorEl.style.display = "block";
+      errorEl.textContent = msg;
+    }
+    function clearError() {
+      errorEl.style.display = "none";
+      errorEl.textContent = "";
+    }
+
+    // Minimal CSV parser that handles quoted commas.
+    function parseCSV(text) {
+      const rows = [];
+      let row = [], cell = "";
+      let inQuotes = false;
+
+      for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        const next = text[i + 1];
+
+        if (c === '"' && inQuotes && next === '"') {
+          cell += '"'; i++; // escaped quote
+        } else if (c === '"') {
+          inQuotes = !inQuotes;
+        } else if (c === ',' && !inQuotes) {
+          row.push(cell); cell = "";
+        } else if ((c === '\n' || c === '\r') && !inQuotes) {
+          if (c === '\r' && next === '\n') i++;
+          row.push(cell);
+          rows.push(row);
+          row = []; cell = "";
+        } else {
+          cell += c;
+        }
+      }
+
+      // last cell
+      if (cell.length || row.length) {
+        row.push(cell);
+        rows.push(row);
+      }
+
+      return rows;
+    }
+
+    function toIntSafe(v) {
+      const n = parseInt(String(v).trim(), 10);
+      return Number.isFinite(n) ? n : null;
+    }
+
+    function render(data) {
+      tbody.innerHTML = "";
+      if (!data.length) {
+        tbody.innerHTML = `<tr><td colspan="4" class="muted">No players found.</td></tr>`;
+        return;
+      }
+
+      data.forEach((p, idx) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td class="rank muted">#${idx + 1}</td>
+          <td class="name">${escapeHtml(p.name)}</td>
+          <td class="num">${p.score}</td>
+          <td class="num">${p.through}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function escapeHtml(str) {
+      return String(str).replace(/[&<>"']/g, s => ({
+        "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+      }[s]));
+    }
+
+    function extractPlayers(rows) {
+      // Expect header row first.
+      // Column indices: A=0 (Names), B=1 (Total Score), L=11 (Through)
+      const out = [];
+      for (let r = 1; r < rows.length; r++) {
+        const name = (rows[r][0] ?? "").trim();
+        if (!name) continue;
+
+        const score = toIntSafe(rows[r][1]);
+        const through = toIntSafe(rows[r][11]);
+
+        // If score/through are blank, treat as 0 (you can change this behavior)
+        out.push({
+          name,
+          score: score ?? 0,
+          through: through ?? 0
+        });
+      }
+      return out;
+    }
+
+    function sortPlayers(players) {
+      // Primary: Through DESC (most holes played first)
+      // Secondary: Score ASC (lowest/best score first)
+      // Tertiary: Name ASC
+      return players.sort((a, b) =>
+        (b.through - a.through) ||
+        (a.score - b.score) ||
+        a.name.localeCompare(b.name)
+      );
+    }
+
+    async function loadOnce() {
+      clearError();
+      setStatus(`<span class="spinner"></span> loading…`);
+
+      // cache-bust so you don't get stale fetches
+      const url = `${CSV_URL}&_ts=${Date.now()}`;
+
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) throw new Error(`Fetch failed: ${res.status} ${res.statusText}`);
+
+      const text = await res.text();
+      const rows = parseCSV(text);
+
+      const players = sortPlayers(extractPlayers(rows));
+      render(players);
+
+      const now = new Date();
+      lastUpdateEl.textContent = now.toLocaleTimeString();
+      setStatus(`<span class="ok">●</span> live`);
+    }
+
+    async function start() {
+      try { await loadOnce(); }
+      catch (e) {
+        setStatus(`<span class="muted">offline</span>`);
+        showError(
+          "Couldn’t read the sheet. Make sure it’s published AND accessible to anyone with the link.\n" +
+          "Technical: " + (e?.message ?? e)
+        );
+      }
+      setInterval(async () => {
+        try { await loadOnce(); }
+        catch (e) {
+          setStatus(`<span class="muted">offline</span>`);
+          showError("Update failed: " + (e?.message ?? e));
+        }
+      }, REFRESH_MS);
+    }
+
+    start();
+  </script>
+</body>
+</html>
